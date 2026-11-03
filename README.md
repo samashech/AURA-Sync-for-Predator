@@ -18,7 +18,7 @@
 </p>
 
 <p align="center">
-  Created and maintained by <a href="https://github.com/cleyton1986">Cleyton Alves</a>
+  maintained by <a href="https://github.com/samashech">Samashech</a>
 </p>
 
 ---
@@ -32,10 +32,10 @@
 > All trademarks, product names, and logos mentioned (Acer, Predator, PredatorSense, Helios, Nitro, AeroBlade, CoolBoost) are the property of their respective owners (Acer Inc.). This project is not affiliated with, endorsed by, or sponsored by Acer Inc. in any way.
 
 > **Note — CPU/GPU identification**
-> The app reports the real CPU and GPU installed in your machine (e.g. "Intel Core i7-11800H", "NVIDIA GeForce RTX 3070") by reading it live from the system (`/proc/cpuinfo`, the GPU driver) purely to identify your own hardware to you (nominative use) — "Intel", "Core", "NVIDIA", and "GeForce" are trademarks of Intel Corporation and NVIDIA Corporation respectively, and this project is not affiliated with, endorsed by, or sponsored by either company. No Intel or NVIDIA logo artwork is bundled with or displayed by this app; the CPU/GPU sections use a generic, non-branded icon instead.
+> The app reports the real CPU and GPU installed in your machine (e.g. "Intel Core i7-14700HX", "NVIDIA GeForce RTX 4050-HQMax", and "GeForce" are trademarks of Intel Corporation and NVIDIA Corporation respectively, and this project is not affiliated with, endorsed by, or sponsored by either company. No Intel or NVIDIA logo artwork is bundled with or displayed by this app; the CPU/GPU sections use a generic, non-branded icon instead.
 
 > **Product images**
-> The laptop photos under `predator-sense-gui/resources/models/` depict official Acer Predator/Nitro products and are used solely to let the app visually identify the model detected on the user's own machine (matched against the `product_name` reported by the system's DMI/BIOS). These images are **not licensed under this project's GPLv3 license** — copyright in the underlying product photography belongs to Acer Inc. and/or its original creators. They are included here on a good-faith, non-commercial, purely informational basis (nominative/product-identification use), with no claim of ownership by this project. If you are the rights holder and would like an image removed, please open an issue and it will be taken down promptly.
+> The laptop photos under `predator-sense-gui/resources/models/` depict official Acer Predator  products and are used solely to let the app visually identify the model detected on the user's own machine (matched against the `product_name` reported by the system's DMI/BIOS). These images are **not licensed under this project's GPLv3 license** — copyright in the underlying product photography belongs to Acer Inc. and/or its original creators. They are included here on a good-faith, non-commercial, purely informational basis (nominative/product-identification use), with no claim of ownership by this project. If you are the rights holder and would like an image removed, please open an issue and it will be taken down promptly.
 
 This application was created for **personal use**, to get the most out of an Acer gaming laptop on Linux — since Acer does not provide official Linux support for PredatorSense. It is shared freely for anyone who wants the same.
 
@@ -104,7 +104,7 @@ If this app/project helped you and/or you liked it in some way, consider leaving
 
 Unofficial Linux kernel module for Acer Gaming laptop RGB keyboard backlighting and Turbo mode (Acer Predator, Acer Helios, Acer Nitro).
 
-Inspired by and based on the [acer-predator-turbo-and-rgb-keyboard-linux-module](https://github.com/JafarAkhondali/acer-predator-turbo-and-rgb-keyboard-linux-module) project by [JafarAkhondali](https://github.com/JafarAkhondali) and contributors. This project extends the existing Linux Acer-WMI kernel module to support Acer gaming functions, and adds a **full GUI desktop application** built with Rust and GTK4.
+Inspired by and based on the [acer-predator-turbo-and-rgb-keyboard-linux-module](https://github.com/JafarAkhondali/acer-predator-turbo-and-rgb-keyboard-linux-module) project by [JafarAkhondali](https://github.com/JafarAkhondali) , Predator-Sense by Cleyton and contributors. This project extends the existing Linux Acer-WMI kernel module to support Acer gaming functions, and adds a **full GUI desktop application** built with Rust and GTK4.
 
 ---
 
@@ -179,7 +179,6 @@ Legend: ✅ tested & working · 🟡 implemented, not tested (needs a tester) ·
 
 > If your model is not listed, it may still work — the kernel module detects compatible WMI interfaces automatically. If it worked (or didn't) for you, please open an issue mentioning your model so we can update this table.
 
-> **Not yet confirmed (v0.3.12):** the PHN16-71 fan profiles and PWM (the kernel quirk now sets `predator_v4`/`pwm`, inferred from the PH16-71), the rear light bar and its extra effects on PH16-72/PH18-72, the Sunrex per-key frame on the PT14-51, and the GPU mux switch were written from the official Windows app and have not been confirmed on real hardware. If you own one of these, a report in the issue tracker is what turns them into ✅.
 
 ### Fan control — three levels
 
@@ -190,12 +189,6 @@ Legend: ✅ tested & working · 🟡 implemented, not tested (needs a tester) ·
 | **Fan PWM %** 🧪 | Per-fan speed control (`pwm1`/`pwm2` 0–100%) ported from mainline `acer-wmi` via WMI — **kernel ≥ 6.14 only** | Subset of models with `ACER_CAP_PWM` (AN515-58, PHN16-72/73, PH16-72, …) |
 
 > **🧪 PWM fan control is experimental.** It is ported from the upstream Linux kernel `acer-wmi` driver and uses safe WMI methods (no raw EC writes), but it has **not been verified on real hardware** by the maintainer (who owns a PH315-54, which has no PWM). If you have a supported model, testing reports are very welcome. **Use at your own risk** — see the disclaimer at the top.
-
-### Alternative: linuwu_sense (unquirked hardware with no working Turbo)
-
-`facer`'s `enable_all=1` fallback recognizes any Acer WMI-capable board, but the full `predator_v4` profile set (5 profiles including `balanced-performance`/`performance`, writable `turbo_state`) only applies to boards present in its DMI quirk table. On an unquirked board, `platform_profile_choices` is limited to `low-power quiet balanced` and `turbo_state` stays read-only even though the firmware supports more — reported on a PHN16-73 unit (Macan_ARX, BIOS V1.26) in [#33](https://github.com/cleyton1986/predator-sense/issues/33).
-
-If that's your case, the community [Linuwu-Sense](https://github.com/0x7375646F/Linuwu-Sense) module (loaded with `predator_v4=1`) exposes the full profile set through the same generic `platform_profile`/`intel_pstate`/`acer-wmi-battery` interfaces this app already reads directly — no `facer`-specific code path involved. Since `v0.2.71-preview` the app detects `linuwu_sense` and skips the "install facer" prompt when it's the driver actually providing those interfaces. RGB and the thermal-profile calibration (both `facer`-only, see above and below) still need `facer` itself and stay unavailable under linuwu_sense.
 
 ### RGB without the kernel module (I2C-HID hardware only)
 
@@ -693,23 +686,8 @@ predator-sense-gui/
 - **Installer and background services** built with [Rust](https://www.rust-lang.org/); tray integration uses [ksni](https://crates.io/crates/ksni)
 - **Dashboard and Temperaturas icons** (`predator-sense-gui/resources/icons/`) from [Flaticon](https://www.flaticon.com), created by Hilmy Abiyyu A., magnific and mehwish
 
-### Forking or reusing this project
-
-This project is licensed under GPL-3.0, so you're free to fork, modify and redistribute it under the same license. If you do — especially if you build a derivative app or reuse significant parts of the GUI/kernel module — **please keep a visible credit to the original author** (a mention of [Cleyton Alves](https://github.com/cleyton1986) / this repo in your README, About screen, or credits section is all that's needed). It's a small ask that goes a long way for an independent, unpaid side project.
 
 ## Support the Project
-
-If this project was useful to you and you'd like to support its development, consider buying me a coffee:
-
-<p align="center">
-  <a href="https://www.paypal.com/cgi-bin/webscr?cmd=_donations&business=cleyton1986%40gmail.com&currency_code=BRL&item_name=Predator+Sense+for+Linux">
-    <img src="https://img.shields.io/badge/PayPal-Donate-00457C?logo=paypal&logoColor=white&style=for-the-badge" alt="Donate via PayPal">
-  </a>
-</p>
-
-<p align="center">
-  <b>PIX (Brazil):</b> <code>cleyton1986@gmail.com</code>
-</p>
 
 Any contribution is voluntary and greatly appreciated! It helps keep the project alive and motivates new features.
 
