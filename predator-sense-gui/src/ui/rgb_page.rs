@@ -266,6 +266,31 @@ fn build_keyboard_panel() -> gtk::Box {
             crate::i18n::t("audio_sync_title"),
             crate::i18n::t("audio_sync_desc"),
         );
+        use crate::hardware::audio_sync::AudioSyncMode;
+        let mode_labels: Vec<&str> = AudioSyncMode::ALL
+            .iter()
+            .map(|mode| crate::i18n::t(mode.label_key()))
+            .collect();
+        let mode_dd = gtk::DropDown::from_strings(&mode_labels);
+        mode_dd.set_valign(gtk::Align::Center);
+        mode_dd.set_selected(
+            AudioSyncMode::ALL
+                .iter()
+                .position(|mode| *mode == saved_cfg.audio_sync_mode)
+                .unwrap_or(0) as u32,
+        );
+        // Takes effect live: the capture thread reads the mode every tick,
+        // so there is nothing to restart.
+        mode_dd.connect_selected_notify(|dd| {
+            let Some(&mode) = AudioSyncMode::ALL.get(dd.selected() as usize) else {
+                return; // GTK_INVALID_LIST_POSITION or other transient state
+            };
+            crate::hardware::audio_sync::set_mode(mode);
+            let mut cfg = crate::config::load_app_config();
+            cfg.audio_sync_mode = mode;
+            let _ = crate::config::save_app_config(&cfg);
+        });
+        sync_row.append(&mode_dd);
         let sync_switch = gtk::Switch::new();
         sync_switch.set_valign(gtk::Align::Center);
         sync_switch.set_active(is_static && saved_cfg.audio_sync_enabled);
@@ -277,8 +302,8 @@ fn build_keyboard_panel() -> gtk::Box {
                 cfg.audio_sync_enabled = enabled;
                 let _ = crate::config::save_app_config(&cfg);
                 if enabled {
-                    let color = state.borrow().zone_colors[0];
-                    let _ = crate::hardware::audio_sync::start(color);
+                    let colors = state.borrow().zone_colors;
+                    let _ = crate::hardware::audio_sync::start(cfg.audio_sync_mode, colors);
                 } else {
                     crate::hardware::audio_sync::stop();
                 }
@@ -292,7 +317,8 @@ fn build_keyboard_panel() -> gtk::Box {
         // before this Static-only restriction existed) must not silently
         // start capturing in a mode where it cannot do anything useful.
         if is_static && saved_cfg.audio_sync_enabled {
-            let _ = crate::hardware::audio_sync::start(zone_colors[0]);
+            let _ =
+                crate::hardware::audio_sync::start(saved_cfg.audio_sync_mode, zone_colors);
         }
         Some((sync_row, sync_switch))
     } else {
@@ -536,6 +562,9 @@ fn build_keyboard_panel() -> gtk::Box {
                     1 => st.zone_colors[z].1 = v,
                     _ => st.zone_colors[z].2 = v,
                 }
+                // Spectrum and Pulse paint with these colours - let a
+                // running Audio Sync pick the change up immediately.
+                crate::hardware::audio_sync::set_palette(st.zone_colors);
                 drop(st);
                 da.queue_draw();
                 kb.queue_draw();

@@ -30,11 +30,81 @@
 //! heavy library dependencies for something the OS already provides.
 
 use crate::hardware::rgb::{Direction, RgbConfig, RgbMode, StaticZoneConfig};
+use serde::{Deserialize, Serialize};
 use std::io::Read;
 use std::process::{Child, Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
+
+/// What the capture loop turns the audio into - the ASUS Aura-style music
+/// effects on top of the original single-colour pulse. All four are pure
+/// software, built from the same per-zone static colour write; none of them
+/// needs anything from the firmware the original Pulse did not already use.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AudioSyncMode {
+    /// Every zone shows zone 1's colour, scaled by the overall level - the
+    /// original behaviour, kept as the default so existing configs look the
+    /// same after an update.
+    #[default]
+    Pulse,
+    /// Each zone follows its own frequency band, bass on the left to treble
+    /// on the right, in that zone's own colour.
+    Spectrum,
+    /// Hue jumps on every detected beat and drifts slowly in between, spread
+    /// across the zones as a gradient; brightness follows the level.
+    Rainbow,
+    /// Zones fill left to right with the level, green to red, like a VU
+    /// meter.
+    Meter,
+}
+
+impl AudioSyncMode {
+    pub const ALL: [AudioSyncMode; 4] = [
+        AudioSyncMode::Pulse,
+        AudioSyncMode::Spectrum,
+        AudioSyncMode::Rainbow,
+        AudioSyncMode::Meter,
+    ];
+
+    pub fn label_key(self) -> &'static str {
+        match self {
+            AudioSyncMode::Pulse => "audio_sync_mode_pulse",
+            AudioSyncMode::Spectrum => "audio_sync_mode_spectrum",
+            AudioSyncMode::Rainbow => "audio_sync_mode_rainbow",
+            AudioSyncMode::Meter => "audio_sync_mode_meter",
+        }
+    }
+
+    fn from_index(index: u8) -> Self {
+        Self::ALL.get(index as usize).copied().unwrap_or_default()
+    }
+
+    fn index(self) -> u8 {
+        Self::ALL.iter().position(|m| *m == self).unwrap_or(0) as u8
+    }
+}
+
+type Rgb = (u8, u8, u8);
+
+/// Mode and palette are read by the capture thread on every tick, so the UI
+/// can change either while it runs. Restarting instead would race: `stop()`
+/// only flags the thread, which notices up to a chunk later, and a `start()`
+/// in that window would see RUNNING already set and leave the old thread
+/// (and its old settings) in charge.
+static MODE: AtomicU8 = AtomicU8::new(0);
+static PALETTE: Mutex<[Rgb; 4]> = Mutex::new([(0, 255, 255); 4]);
+
+pub fn set_mode(mode: AudioSyncMode) {
+    MODE.store(mode.index(), Ordering::Relaxed);
+}
+
+/// Zone colours, left to right. Pulse uses only the first, Spectrum all
+/// four; Rainbow and Meter bring their own colours.
+pub fn set_palette(colors: [Rgb; 4]) {
+    *PALETTE.lock().unwrap() = colors;
+}
 
 const SAMPLE_RATE: u32 = 22_050;
 /// ~46ms of mono 16-bit audio per read - fine-grained enough to feel
@@ -73,15 +143,18 @@ pub fn is_available() -> bool {
         .unwrap_or(false)
 }
 
-/// Starts capturing the default sink's monitor and driving `color` (scaled
-/// by the live audio level) onto every keyboard zone via the WMI static-color
-/// path. Returns immediately - the capture and the color writes both happen
-/// on a dedicated thread, until `stop()` is called or `parec` itself exits
-/// (e.g. the default audio device disappears).
+/// Starts capturing the default sink's monitor and driving the keyboard
+/// zones from it according to `mode`, via the WMI static-color path (or the
+/// HID chip where there is one). Returns immediately - the capture and the
+/// color writes both happen on a dedicated thread, until `stop()` is called
+/// or `parec` itself exits (e.g. the default audio device disappears).
 ///
-/// A no-op, not an error, if already running - matches the toggle-switch UI
-/// this drives, where flipping it on twice should not be a failure.
-pub fn start(color: (u8, u8, u8)) -> Result<(), String> {
+/// If already running this only updates the mode and palette - matches the
+/// toggle-switch UI this drives, where flipping it on twice should not be a
+/// failure.
+pub fn start(mode: AudioSyncMode, colors: [Rgb; 4]) -> Result<(), String> {
+    set_mode(mode);
+    set_palette(colors);
     if RUNNING.swap(true, Ordering::SeqCst) {
         return Ok(());
     }
@@ -219,14 +292,26 @@ pub fn start(color: (u8, u8, u8)) -> Result<(), String> {
         const AGC_FLOOR: f64 = 0.05;
         const AGC_DECAY: f64 = 0.984; // ~2s half-life at one update/chunk (~46ms)
         let mut agc_ref = AGC_FLOOR;
+        // Same fast-attack/slow-decay level and peak-and-hold reference as
+        // above, once per frequency band - each band needs its own, or the
+        // bass (where nearly all of a mix's energy sits) would set the scale
+        // and leave the treble zone permanently dark.
+        let mut band_smoothed = [0.0f64; BAND_COUNT];
+        let mut band_ref = [BAND_AGC_FLOOR; BAND_COUNT];
+        let mut beats = BeatDetector::default();
+        let mut hue = 0.0f64;
+        // Last frame actually written, so a zone whose colour did not change
+        // costs no WMI call - Spectrum and Meter often hold most zones still.
+        let mut last_frame: [Option<Rgb>; 4] = [None; 4];
+        let mut samples = [0.0f64; CHUNK_SAMPLES];
         while RUNNING.load(Ordering::Relaxed) {
             if stdout.read_exact(&mut buf).is_err() {
                 break; // parec exited, or the pipe closed under us
             }
-            let peak = buf
-                .chunks_exact(2)
-                .map(|b| (i16::from_le_bytes([b[0], b[1]]) as f64 / i16::MAX as f64).abs())
-                .fold(0.0f64, f64::max);
+            for (sample, b) in samples.iter_mut().zip(buf.chunks_exact(2)) {
+                *sample = i16::from_le_bytes([b[0], b[1]]) as f64 / i16::MAX as f64;
+            }
+            let peak = samples.iter().fold(0.0f64, |acc, s| acc.max(s.abs()));
             smoothed = if peak > smoothed {
                 peak
             } else {
@@ -237,6 +322,31 @@ pub fn start(color: (u8, u8, u8)) -> Result<(), String> {
             } else {
                 (agc_ref * AGC_DECAY).max(AGC_FLOOR)
             };
+            let mode = AudioSyncMode::from_index(MODE.load(Ordering::Relaxed));
+            // Only the modes that use them pay for the FFT and beat tracking.
+            let bands = if matches!(mode, AudioSyncMode::Spectrum | AudioSyncMode::Rainbow) {
+                band_energies(&samples)
+            } else {
+                [0.0; BAND_COUNT]
+            };
+            for i in 0..BAND_COUNT {
+                band_smoothed[i] = if bands[i] > band_smoothed[i] {
+                    bands[i]
+                } else {
+                    band_smoothed[i] * 0.80 + bands[i] * 0.20
+                };
+                band_ref[i] = if bands[i] > band_ref[i] {
+                    bands[i]
+                } else {
+                    (band_ref[i] * AGC_DECAY).max(BAND_AGC_FLOOR)
+                };
+            }
+            if mode == AudioSyncMode::Rainbow {
+                // A beat kicks the hue a sixth of the wheel; between beats it
+                // creeps on its own so a beatless passage still moves.
+                hue += if beats.feed(bands[0]) { 60.0 } else { 0.8 };
+                hue %= 360.0;
+            }
             if last_write.elapsed() >= MIN_WRITE_INTERVAL {
                 last_write = Instant::now();
                 // Tried a headroom divisor (<1, so a merely-typical moment
@@ -254,12 +364,11 @@ pub fn start(color: (u8, u8, u8)) -> Result<(), String> {
                 // has a quiet moment relative to its own last ~2s will
                 // legitimately look bright throughout; that is the actual
                 // dynamics of the track, not this loop under-reacting.
-                let level = (smoothed / agc_ref).clamp(0.0, 1.0);
-                let scaled = (
-                    (color.0 as f64 * level).round() as u8,
-                    (color.1 as f64 * level).round() as u8,
-                    (color.2 as f64 * level).round() as u8,
-                );
+                let level = contrast(smoothed / agc_ref);
+                let band_levels: [f64; BAND_COUNT] =
+                    std::array::from_fn(|i| contrast(band_smoothed[i] / band_ref[i]));
+                let palette = *PALETTE.lock().unwrap();
+                let frame = render_frame(mode, level, band_levels, hue, &palette);
                 // Only the per-zone color write happens here, on every tick.
                 // The WMI path's mode=Static "commit" (apply_dynamic_effect)
                 // runs exactly once, before this thread starts (see above) -
@@ -275,6 +384,10 @@ pub fn start(color: (u8, u8, u8)) -> Result<(), String> {
                 // HID hardware has no such step - every write already is
                 // the real color, immediately.
                 for zone in 1..=4u8 {
+                    let scaled = frame[(zone - 1) as usize];
+                    if last_frame[(zone - 1) as usize] == Some(scaled) {
+                        continue;
+                    }
                     let write_result = if use_hid {
                         crate::hardware::hid_rgb::set_zone_color(
                             crate::hardware::hid_rgb::ZONE_MASKS[(zone - 1) as usize],
@@ -295,8 +408,12 @@ pub fn start(color: (u8, u8, u8)) -> Result<(), String> {
                         crate::hardware::applog::error(&format!(
                             "audio_sync: zone {zone} write failed: {error}"
                         ));
+                        // Forget the frame, so the next tick rewrites every
+                        // zone instead of trusting ones that never landed.
+                        last_frame = [None; 4];
                         break;
                     }
+                    last_frame[(zone - 1) as usize] = Some(scaled);
                 }
             }
         }
@@ -307,6 +424,184 @@ pub fn start(color: (u8, u8, u8)) -> Result<(), String> {
         }
     });
     Ok(())
+}
+
+/// One band per keyboard zone.
+const BAND_COUNT: usize = 4;
+/// FFT bin ranges per band, at `SAMPLE_RATE / CHUNK_SAMPLES` ≈ 21.5Hz a bin:
+/// ~43-150Hz (kick/bass), ~150-600Hz (low mids), ~600-2500Hz (vocals, most
+/// melody), ~2.5-8kHz (hats, cymbals). Bins 0-1 are skipped - DC and
+/// sub-bass rumble would otherwise dominate the bass zone.
+const BAND_BINS: [(usize, usize); BAND_COUNT] = [(2, 7), (7, 28), (28, 116), (116, 372)];
+/// Per-band equivalent of `AGC_FLOOR`, lower because a band holds only part
+/// of the signal's energy. Keeps a nearly silent band from being scaled up
+/// to full brightness by its own noise.
+const BAND_AGC_FLOOR: f64 = 0.004;
+
+/// Mean FFT magnitude per band of one Hann-windowed chunk, normalised so a
+/// full-scale sine centred on a bin reads ~1.0.
+fn band_energies(samples: &[f64; CHUNK_SAMPLES]) -> [f64; BAND_COUNT] {
+    let mut re = [0.0f64; CHUNK_SAMPLES];
+    let mut im = [0.0f64; CHUNK_SAMPLES];
+    let n = CHUNK_SAMPLES as f64;
+    for (i, sample) in samples.iter().enumerate() {
+        let hann = 0.5 - 0.5 * (2.0 * std::f64::consts::PI * i as f64 / (n - 1.0)).cos();
+        re[i] = sample * hann;
+    }
+    fft(&mut re, &mut im);
+    // A Hann window halves a sine's amplitude, and a real sine splits its
+    // energy between the positive and negative bin: N/4 in all.
+    let scale = 4.0 / n;
+    BAND_BINS.map(|(lo, hi)| {
+        let sum: f64 = (lo..hi).map(|k| (re[k] * re[k] + im[k] * im[k]).sqrt()).sum();
+        sum * scale / (hi - lo) as f64
+    })
+}
+
+/// In-place iterative radix-2 FFT. `CHUNK_SAMPLES` is a power of two, and a
+/// 1024-point transform ~22 times a second is far too little work to justify
+/// a new crate dependency for it.
+fn fft(re: &mut [f64], im: &mut [f64]) {
+    let n = re.len();
+    debug_assert!(n.is_power_of_two() && im.len() == n);
+    let mut j = 0;
+    for i in 1..n {
+        let mut bit = n >> 1;
+        while j & bit != 0 {
+            j ^= bit;
+            bit >>= 1;
+        }
+        j |= bit;
+        if i < j {
+            re.swap(i, j);
+            im.swap(i, j);
+        }
+    }
+    let mut len = 2;
+    while len <= n {
+        let angle = -2.0 * std::f64::consts::PI / len as f64;
+        let (w_im, w_re) = angle.sin_cos();
+        for start in (0..n).step_by(len) {
+            let (mut cur_re, mut cur_im) = (1.0f64, 0.0f64);
+            for k in 0..len / 2 {
+                let (a, b) = (start + k, start + k + len / 2);
+                let t_re = re[b] * cur_re - im[b] * cur_im;
+                let t_im = re[b] * cur_im + im[b] * cur_re;
+                re[b] = re[a] - t_re;
+                im[b] = im[a] - t_im;
+                re[a] += t_re;
+                im[a] += t_im;
+                (cur_re, cur_im) = (cur_re * w_re - cur_im * w_im, cur_re * w_im + cur_im * w_re);
+            }
+        }
+        len <<= 1;
+    }
+}
+
+/// Bass-onset beat detector: a beat is bass energy jumping well above its own
+/// recent average. Compared against an average rather than a fixed threshold
+/// for the same reason the level uses an AGC - the absolute numbers depend on
+/// the track's mastering and the volume.
+#[derive(Default)]
+struct BeatDetector {
+    average: f64,
+    /// Chunks left before another beat may fire - a kick drum's energy spans
+    /// several chunks, and each of them would otherwise count again.
+    cooldown: u8,
+}
+
+impl BeatDetector {
+    /// ~1.4s time constant at one chunk per ~46ms.
+    const AVERAGE_WEIGHT: f64 = 0.033;
+    const THRESHOLD: f64 = 1.5;
+    /// ~230ms, i.e. at most ~260 beats per minute.
+    const COOLDOWN_CHUNKS: u8 = 5;
+
+    fn feed(&mut self, bass: f64) -> bool {
+        let is_beat = self.cooldown == 0
+            && bass > BAND_AGC_FLOOR
+            && bass > self.average * Self::THRESHOLD;
+        self.average += (bass - self.average) * Self::AVERAGE_WEIGHT;
+        if is_beat {
+            self.cooldown = Self::COOLDOWN_CHUNKS;
+        } else {
+            self.cooldown = self.cooldown.saturating_sub(1);
+        }
+        is_beat
+    }
+}
+
+/// Below this fraction of the recent peak a zone goes fully dark.
+const BLACK_POINT: f64 = 0.35;
+/// Exponent of the curve above the black point. Above 1 it expands the
+/// dynamics: the plain ratio left a track with steady dynamics (Tame
+/// Impala's "Loser" was the report) hovering around half brightness, lit
+/// enough all the time that the music barely showed in it. The opposite
+/// tweak, a gamma below 1, was already tried and left everything constantly
+/// lit (see the capture loop).
+const CONTRAST_GAMMA: f64 = 2.2;
+
+/// Maps a raw level ratio (level / recent peak) to brightness, dark through
+/// the music's quieter moments and full only on its louder ones.
+fn contrast(ratio: f64) -> f64 {
+    let above = ((ratio - BLACK_POINT) / (1.0 - BLACK_POINT)).clamp(0.0, 1.0);
+    above.powf(CONTRAST_GAMMA)
+}
+
+fn scale(color: Rgb, level: f64) -> Rgb {
+    let level = level.clamp(0.0, 1.0);
+    (
+        (color.0 as f64 * level).round() as u8,
+        (color.1 as f64 * level).round() as u8,
+        (color.2 as f64 * level).round() as u8,
+    )
+}
+
+/// Fully saturated colour at `hue` degrees.
+fn hue_to_rgb(hue: f64) -> Rgb {
+    let h = hue.rem_euclid(360.0) / 60.0;
+    let x = 1.0 - (h % 2.0 - 1.0).abs();
+    let (r, g, b) = match h as u8 {
+        0 => (1.0, x, 0.0),
+        1 => (x, 1.0, 0.0),
+        2 => (0.0, 1.0, x),
+        3 => (0.0, x, 1.0),
+        4 => (x, 0.0, 1.0),
+        _ => (1.0, 0.0, x),
+    };
+    (
+        (r * 255.0f64).round() as u8,
+        (g * 255.0f64).round() as u8,
+        (b * 255.0f64).round() as u8,
+    )
+}
+
+/// VU meter colours, left to right.
+const METER_COLORS: [Rgb; 4] = [(0, 255, 0), (0, 255, 0), (255, 200, 0), (255, 0, 0)];
+
+/// What every zone should show this tick, left to right.
+fn render_frame(
+    mode: AudioSyncMode,
+    level: f64,
+    bands: [f64; BAND_COUNT],
+    hue: f64,
+    palette: &[Rgb; 4],
+) -> [Rgb; 4] {
+    match mode {
+        AudioSyncMode::Pulse => [scale(palette[0], level); 4],
+        AudioSyncMode::Spectrum => std::array::from_fn(|i| scale(palette[i], bands[i])),
+        // A faint floor keeps the gradient readable in quiet passages
+        // without washing out the contrast between them and the loud ones.
+        AudioSyncMode::Rainbow => std::array::from_fn(|i| {
+            scale(hue_to_rgb(hue + i as f64 * 30.0), 0.04 + 0.96 * level)
+        }),
+        // Each zone covers a quarter of the range, and the zone the level is
+        // currently inside lights partially - a smoother fill than whole
+        // zones snapping on and off.
+        AudioSyncMode::Meter => {
+            std::array::from_fn(|i| scale(METER_COLORS[i], level * 4.0 - i as f64))
+        }
+    }
 }
 
 /// Stops the capture thread and kills `parec`. Safe to call even when not
@@ -354,7 +649,7 @@ mod tests {
         // color the real feature ends up defaulting to is a separate,
         // later decision - this only needs to isolate whether the level
         // math itself is the problem.
-        start((0, 255, 255)).expect("failed to start capture");
+        start(AudioSyncMode::Pulse, [(0, 255, 255); 4]).expect("failed to start capture");
         println!("audio sync running for 10s, play something now...");
         std::thread::sleep(Duration::from_secs(14));
         stop();
@@ -382,6 +677,64 @@ mod tests {
         }
         std::thread::sleep(Duration::from_millis(200));
         assert!(!is_running());
+    }
+
+    /// A full-scale sine at each band's centre must land in that band and
+    /// read close to 1.0 there, with the other bands well below it.
+    #[test]
+    fn band_energies_put_a_sine_in_the_right_band() {
+        for (band, (lo, hi)) in BAND_BINS.iter().enumerate() {
+            let bin = (lo + hi) / 2;
+            let freq = bin as f64 * SAMPLE_RATE as f64 / CHUNK_SAMPLES as f64;
+            let samples: [f64; CHUNK_SAMPLES] = std::array::from_fn(|i| {
+                (2.0 * std::f64::consts::PI * freq * i as f64 / SAMPLE_RATE as f64).sin()
+            });
+            let energies = band_energies(&samples);
+            let loudest = (0..BAND_COUNT)
+                .max_by(|a, b| energies[*a].total_cmp(&energies[*b]))
+                .unwrap();
+            assert_eq!(loudest, band, "{freq}Hz landed in band {loudest}: {energies:?}");
+        }
+    }
+
+    #[test]
+    fn beat_detector_fires_once_per_kick() {
+        let mut beats = BeatDetector::default();
+        let mut fired = 0;
+        for chunk in 0..100 {
+            // A kick every 10 chunks (~460ms, ~130bpm), lasting 3 chunks.
+            let bass = if chunk % 10 < 3 { 0.3 } else { 0.02 };
+            fired += beats.feed(bass) as u32;
+        }
+        assert_eq!(fired, 10);
+    }
+
+    #[test]
+    fn meter_fills_left_to_right() {
+        let palette = [(0, 0, 0); 4];
+        let silent = render_frame(AudioSyncMode::Meter, 0.0, [0.0; 4], 0.0, &palette);
+        assert_eq!(silent, [(0, 0, 0); 4]);
+        let half = render_frame(AudioSyncMode::Meter, 0.5, [0.0; 4], 0.0, &palette);
+        assert_eq!(half, [METER_COLORS[0], METER_COLORS[1], (0, 0, 0), (0, 0, 0)]);
+        let full = render_frame(AudioSyncMode::Meter, 1.0, [0.0; 4], 0.0, &palette);
+        assert_eq!(full, METER_COLORS);
+    }
+
+    #[test]
+    fn contrast_darkens_quiet_and_keeps_peaks_full() {
+        assert_eq!(contrast(0.0), 0.0);
+        assert_eq!(contrast(BLACK_POINT), 0.0);
+        assert!(contrast(0.6) < 0.25, "a middling moment should read dim");
+        assert!((contrast(1.0) - 1.0).abs() < 1e-9);
+        assert!((contrast(1.5) - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn hue_wheel_hits_the_primaries() {
+        assert_eq!(hue_to_rgb(0.0), (255, 0, 0));
+        assert_eq!(hue_to_rgb(120.0), (0, 255, 0));
+        assert_eq!(hue_to_rgb(240.0), (0, 0, 255));
+        assert_eq!(hue_to_rgb(360.0), (255, 0, 0));
     }
 
     #[test]

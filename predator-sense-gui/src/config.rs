@@ -411,6 +411,10 @@ pub struct AppConfig {
     /// something other than a direct user action, so it starts opt-in.
     #[serde(default)]
     pub audio_sync_enabled: bool,
+    /// Which music effect Audio Sync runs. Defaults to Pulse, the only
+    /// behaviour configs saved before this field existed ever had.
+    #[serde(default)]
+    pub audio_sync_mode: crate::hardware::audio_sync::AudioSyncMode,
     /// User-edited EQ curve (`ui::audio_eq_page`'s "Custom" tab) - always
     /// exactly 10 values, one per `hardware::audio_eq::BAND_FREQUENCIES_HZ`
     /// band, low to high. `Vec` rather than a fixed-size array purely so
@@ -576,6 +580,7 @@ impl Default for AppConfig {
             game_profiles: Vec::new(),
             custom_icons_enabled: true,
             audio_sync_enabled: false,
+            audio_sync_mode: Default::default(),
             audio_eq_custom: None,
             eco_mode_enabled: false,
             eco_mode_saved_volume_pct: None,
