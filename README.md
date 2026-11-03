@@ -1,10 +1,6 @@
 # Predator Sense for Linux
 
 <p align="center">
-  <a href="README-ptbr.md">🇧🇷 Leia em Português</a> · <a href="README-es.md">🇪🇸 Leer en Español</a> · <a href="README-zh.md">🇨🇳 阅读中文版</a> · <a href="README-ja.md">🇯🇵 日本語で読む</a> · <a href="README-ru.md">🇷🇺 Читать на русском</a> · <a href="README-de.md">🇩🇪 Auf Deutsch lesen</a> · <a href="README-it.md">🇮🇹 Leggi in Italiano</a> · <a href="README-tr.md">🇹🇷 Türkçe Oku</a>
-</p>
-
-<p align="center">
   <img src="predator-sense-gui/resources/logo.jpeg" width="120" alt="Predator Sense Logo">
 </p>
 
@@ -49,44 +45,49 @@ If this app/project helped you and/or you liked it in some way, consider leaving
 
 ## Screenshots
 
-<p align="center"><b>Dashboard</b> — Laptop photo and full system specs at a glance: CPU, GPU, RAM, storage, network and OS.</p>
-<p align="center"><img src="assets/psense-1.png" width="800" alt="Dashboard"></p>
+<p align="center"><sub>Captured on a Predator Helios Neo 16 (PHN16-72). Personal details (MAC and IP addresses, serial number) are blurred.</sub></p>
+
+<p align="center"><b>Home</b> — The home screen, laid out like the Windows PredatorSense 5 app: GPU frequency gauge with GPU/CPU usage, the laptop on its platform, the current System Mode, and GPU/CPU/System temperature dials.</p>
+<p align="center"><img src="assets/screenshots/home.jpg" width="800" alt="Home"></p>
+
+<p align="center"><b>System Info</b> — Laptop photo and full system specs at a glance: CPU, GPU, RAM, storage, network and OS.</p>
+<p align="center"><img src="assets/screenshots/system-info.jpg" width="800" alt="System Info"></p>
 
 <p align="center"><b>Temperatures</b> — Live gauges for CPU, GPU, system, NVMe drives, WiFi and RAM, all in one screen.</p>
-<p align="center"><img src="assets/psense-2.png" width="800" alt="Temperatures"></p>
+<p align="center"><img src="assets/screenshots/temperatures.jpg" width="800" alt="Temperatures"></p>
 
-<p align="center"><b>Usage</b> — CPU, GPU, memory and storage with top processes, animated bars and click-to-expand details (with a CSS-style fire animation on the temperature gauge).</p>
-<p align="center"><img src="assets/psense-3.png" width="800" alt="Usage"></p>
+<p align="center"><b>Usage</b> — CPU, GPU, memory and storage with top processes, animated bars and click-to-expand details.</p>
+<p align="center"><img src="assets/screenshots/usage.jpg" width="800" alt="Usage"></p>
 
 <p align="center"><b>Network</b> — Real-time download/upload graphs with peak tracking and automatic interface detection (Wi-Fi or Ethernet).</p>
-<p align="center"><img src="assets/psense-4.png" width="800" alt="Network"></p>
+<p align="center"><img src="assets/screenshots/network.jpg" width="800" alt="Network"></p>
 
-<p align="center"><b>Lighting</b> — Static per-zone (4 sections) and dynamic RGB keyboard effects (Breathing, Neon, Wave, Shifting, Zoom).</p>
-<p align="center"><img src="assets/psense-5.png" width="800" alt="Lighting"></p>
+<p align="center"><b>Lighting</b> — Static per-zone (4 sections) and dynamic RGB keyboard effects, plus Audio Sync with Aura-style music modes: Pulse, Spectrum, Rainbow Beat and VU Meter.</p>
+<p align="center"><img src="assets/screenshots/lighting.jpg" width="800" alt="Lighting"></p>
 
 <p align="center"><b>Modes</b> — Performance profiles: Quiet, Balanced, Performance and Turbo, plus a battery-only Eco tier (CPU governor + Intel EPP + GPU power limit).</p>
-<p align="center"><img src="assets/psense-6.png" width="800" alt="Modes"></p>
+<p align="center"><img src="assets/screenshots/fan.jpg" width="800" alt="Modes"></p>
 
-<p align="center"><b>Tools</b> — GameSync, Macros, Audio EQ, the AI assistant (beta) and GRUB Splash live here now, grouped into tabs so the sidebar doesn't grow without limit. Shown here: GameSync, which registers a game and its profile so the app switches to it automatically while the game is running and restores whatever was active before once it exits.</p>
-<p align="center"><img src="assets/psense-15.png" width="800" alt="Tools"></p>
-
-<p align="center"><b>Fan Control</b> — Live RPM with animated spinning fans, CoolBoost toggle and Auto/Max modes.</p>
-<p align="center"><img src="assets/psense-7.png" width="800" alt="Fan Control"></p>
+<p align="center"><b>Fan Control</b> — Live RPM with animated spinning fans, CoolBoost toggle and Auto/Max/Custom modes.</p>
+<p align="center"><img src="assets/screenshots/fan-ctrl.jpg" width="800" alt="Fan Control"></p>
 
 <p align="center"><b>Battery</b> — Charge percentage, voltage, current, power, cycles, health, manufacturer and 80% charge limit for longevity.</p>
-<p align="center"><img src="assets/psense-8.png" width="800" alt="Battery"></p>
+<p align="center"><img src="assets/screenshots/battery.jpg" width="800" alt="Battery"></p>
 
 <p align="center"><b>GPU</b> — NVIDIA dashboard with live graphs, clocks, utilization, VRAM, power draw and PCIe info.</p>
-<p align="center"><img src="assets/psense-9.png" width="800" alt="GPU"></p>
+<p align="center"><img src="assets/screenshots/gpu.jpg" width="800" alt="GPU"></p>
 
 <p align="center"><b>Graphs</b> — Detailed CPU and GPU history charts with min/max tracking.</p>
-<p align="center"><img src="assets/psense-10.png" width="800" alt="Graphs"></p>
+<p align="center"><img src="assets/screenshots/monitor.jpg" width="800" alt="Graphs"></p>
 
-<p align="center"><b>Drivers and manuals</b> — Shows the serial number (with a copy button) and a direct link to Acer's official drivers-and-manuals page, plus an illustration of where to find the serial number sticker on the laptop.</p>
-<p align="center"><img src="assets/psense-16.png" width="800" alt="Drivers and manuals"></p>
+<p align="center"><b>Tools</b> — GameSync, Macros, Audio EQ, the AI assistant (beta) and GRUB Splash, grouped into tabs. Shown here: GameSync, which switches to a game's profile while it runs and restores the previous one when it exits.</p>
+<p align="center"><img src="assets/screenshots/tools.jpg" width="800" alt="Tools"></p>
+
+<p align="center"><b>Drivers and manuals</b> — The serial number (with a copy button) and a direct link to Acer's official drivers-and-manuals page, plus where to find the serial number sticker on the laptop.</p>
+<p align="center"><img src="assets/screenshots/drivers.jpg" width="800" alt="Drivers and manuals"></p>
 
 <p align="center"><b>Settings</b> — Minimize to tray, start on boot, auto-apply profile on start, language preferences, and per-model supported-features list.</p>
-<p align="center"><img src="assets/psense-12.png" width="800" alt="Settings"></p>
+<p align="center"><img src="assets/screenshots/settings.jpg" width="800" alt="Settings"></p>
 
 <p align="center"><b>Cover logo lighting</b> — Independent RGB control for the logo on the back of the display, on models with a color-capable cover logo (Static/Breathing/Neon). Runtime-detected: the control only appears if the hardware responds to a capability probe, so it stays safely hidden on models without it.</p>
 <p align="center"><img src="assets/psense-13.png" width="800" alt="Cover logo lighting"></p>
@@ -94,6 +95,10 @@ If this app/project helped you and/or you liked it in some way, consider leaving
 <p align="center"><sub>Feature contributed by <a href="https://github.com/jlucaso1">@jlucaso1</a>, tested on their own Predator PHN16-73. This laptop's cover logo isn't color-capable, so the feature was verified using their hardware.</sub></p>
 
 ---
+
+<p align="center">
+  <img src="assets/helios-neo.jpg" width="600" alt="Acer Predator Helios Neo 16 running Linux">
+</p>
 
 ## About
 
