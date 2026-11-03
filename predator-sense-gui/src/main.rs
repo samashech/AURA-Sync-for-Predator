@@ -59,11 +59,14 @@ fn register_predator_font() {
         fn FcConfigAppFontAddFile(config: *mut std::ffi::c_void, file: *const i8) -> i32;
     }
 
-    for candidate in [
+    // The copy `tools/import_windows_assets.py` takes from the user's own
+    // Windows install comes first; the in-tree POC locations stay as before.
+    let imported = crate::ui::acer_assets::file("font/Predator-Bold.otf");
+    for candidate in imported.iter().map(String::as_str).chain([
         "resources/fonts/Predator-Bold.otf",
         "../resources/fonts/Predator-Bold.otf",
         "/opt/predator-sense/resources/fonts/Predator-Bold.otf",
-    ] {
+    ]) {
         if !std::path::Path::new(candidate).exists() {
             continue;
         }

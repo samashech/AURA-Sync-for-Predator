@@ -1270,10 +1270,25 @@ scrollbar slider:hover {
     background-color: transparent;
 }
 
-flowboxchild.home-flow-child,
-flowboxchild.home-flow-child:hover,
-flowboxchild.home-flow-child:focus {
+/* Mode banner on Home: "Balanced" in bold over `home_modebg`. */
+.home-mode-value {
+    font-family: "Predator", sans-serif;
+    font-weight: 700;
+    font-size: 20px;
+    color: #ffffff;
+}
+
+/* Icon-only buttons built from imported Windows artwork (acer_assets.rs) -
+   the icon itself carries the look, so no button chrome or padding. */
+.acer-icon-btn {
     background: none;
+    border: none;
+    box-shadow: none;
     padding: 0;
-    outline: none;
+    min-width: 0;
+    min-height: 0;
+}
+
+.acer-icon-btn:hover {
+    background-color: rgba(255, 255, 255, 0.08);
 }

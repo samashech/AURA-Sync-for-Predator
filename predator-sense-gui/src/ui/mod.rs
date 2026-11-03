@@ -1,3 +1,4 @@
+pub mod acer_assets;
 pub mod ai_page;
 pub mod audio_eq_page;
 pub mod background;

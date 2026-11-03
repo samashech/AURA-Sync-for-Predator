@@ -10,7 +10,7 @@ use crate::config;
 use crate::hardware::{rgb, sensors, setup};
 use crate::tray::TrayManager;
 use crate::ui::{
-    ai_page, background, battery_page, dashboard_page, drivers_page, fan_control_page, fan_page,
+    acer_assets, ai_page, background, battery_page, dashboard_page, drivers_page, fan_control_page, fan_page,
     gpu_page, monitor_page, network_page, rgb_page, setup_page, temperatures_page, tools_page,
     usage_page,
 };
@@ -57,12 +57,21 @@ pub fn build(app: &adw::Application) {
     header_box.add_css_class("custom-headerbar");
     header.set_child(Some(&header_box));
 
-    let brand_mark = gtk::DrawingArea::new();
-    brand_mark.set_size_request(26, 32);
+    // The Windows app's own header logo when its artwork has been imported
+    // (`acer_assets`), our drawn mark otherwise.
+    let brand_mark: gtk::Widget = match acer_assets::picture("images/home/home_headerlogo.png", 26, 32)
+    {
+        Some(logo) => logo.upcast(),
+        None => {
+            let mark = gtk::DrawingArea::new();
+            mark.set_size_request(26, 32);
+            mark.set_draw_func(|_a, cr, w, h| draw_brand_mark(cr, w as f64, h as f64));
+            mark.upcast()
+        }
+    };
     brand_mark.set_valign(gtk::Align::Center);
     brand_mark.set_margin_start(24);
     brand_mark.set_margin_end(12);
-    brand_mark.set_draw_func(|_a, cr, w, h| draw_brand_mark(cr, w as f64, h as f64));
     header_box.append(&brand_mark);
 
     // Filled by `build_main_content` with the page tabs and the status pill -
@@ -76,13 +85,17 @@ pub fn build(app: &adw::Application) {
     let controls = gtk::Box::new(gtk::Orientation::Horizontal, 4);
     controls.set_valign(gtk::Align::Center);
     controls.set_margin_end(12);
-    let btn_minimize = gtk::Button::with_label("—");
-    btn_minimize.add_css_class("window-ctrl-btn");
+    let header_button = |icon: &str, fallback: &str| {
+        let button = acer_assets::icon_button(&format!("images/header/{icon}.png"), 32)
+            .unwrap_or_else(|| gtk::Button::with_label(fallback));
+        button.add_css_class("window-ctrl-btn");
+        button
+    };
+    let btn_minimize = header_button("header_min", "—");
     let win_c = window.clone();
     btn_minimize.connect_clicked(move |_| win_c.minimize());
 
-    let btn_maximize = gtk::Button::with_label("❐");
-    btn_maximize.add_css_class("window-ctrl-btn");
+    let btn_maximize = header_button("header_max", "❐");
     let win_m = window.clone();
     btn_maximize.connect_clicked(move |_| {
         if win_m.is_maximized() {
@@ -92,8 +105,7 @@ pub fn build(app: &adw::Application) {
         }
     });
 
-    let btn_close = gtk::Button::with_label("✕");
-    btn_close.add_css_class("window-ctrl-btn");
+    let btn_close = header_button("header_close", "✕");
     let win_c2 = window.clone();
     let app_c = app.clone();
     btn_close.connect_clicked(move |_| {
@@ -923,9 +935,11 @@ fn build_main_ui(app: &adw::Application, window: &gtk::ApplicationWindow) {
     // covers the 4 px core bar plus the widest glow layer (10 px outward,
     // clipped by the window edge exactly like before, and 14 px inward), so
     // the result is pixel-identical to the old full-window draw.
+    // The Windows app has no such edge glow, so with its artwork imported
+    // the bars (and their pulse timer) are left out entirely.
     let pulse_phase: Rc<RefCell<f64>> = Rc::new(RefCell::new(0.0));
     let mut neon_bars = Vec::new();
-    for left in [true, false] {
+    for left in [true, false].into_iter().filter(|_| !acer_assets::available()) {
         let bar = gtk::DrawingArea::new();
         bar.set_content_width(32);
         bar.set_vexpand(true);
@@ -948,6 +962,9 @@ fn build_main_ui(app: &adw::Application, window: &gtk::ApplicationWindow) {
     // strokes on every redraw cycle of the entire window.
     let phase_c = pulse_phase.clone();
     glib::timeout_add_local(std::time::Duration::from_millis(200), move || {
+        if neon_bars.is_empty() {
+            return glib::ControlFlow::Break;
+        }
         if !crate::app_state::is_window_visible() {
             return glib::ControlFlow::Continue;
         }
@@ -1048,7 +1065,21 @@ fn build_main_content(app: &adw::Application, window: &gtk::ApplicationWindow) -
             y += 34.0;
         }
     });
-    main_overlay.set_child(Some(&stripe_bg));
+    // The Windows app's own corridor background (`img_background.png`,
+    // `background-size: cover`) when imported - a `Picture` with
+    // `ContentFit::Cover`, scaled on the GPU, rather than a Cairo paint of a
+    // 4800x2160 image on every redraw.
+    match acer_assets::file("images/img_background.png") {
+        Some(path) => {
+            let background = gtk::Picture::for_filename(path);
+            background.set_content_fit(gtk::ContentFit::Cover);
+            background.set_can_shrink(true);
+            background.set_hexpand(true);
+            background.set_vexpand(true);
+            main_overlay.set_child(Some(&background));
+        }
+        None => main_overlay.set_child(Some(&stripe_bg)),
+    }
 
     // Pages sit straight on the background, with no sidebar or framed panel
     // around them - the Windows 5.x app moved all navigation into the header
@@ -1253,6 +1284,7 @@ fn build_main_content(app: &adw::Application, window: &gtk::ApplicationWindow) -
         });
     }
     window.add_controller(key_controller);
+
 
     // Thirteen pages do not fit across a narrow window, so the row scrolls
     // sideways instead of wrapping - the Windows app does the same, with

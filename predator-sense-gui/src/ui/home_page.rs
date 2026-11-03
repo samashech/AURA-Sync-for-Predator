@@ -16,14 +16,20 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use crate::hardware::sensors;
+use crate::ui::acer_assets;
+
+const GREEN: (f64, f64, f64) = (30.0 / 255.0, 1.0, 150.0 / 255.0);
 
 const CYAN: (f64, f64, f64) = (0.0, 200.0 / 255.0, 236.0 / 255.0);
 const TEAL: (f64, f64, f64) = (14.0 / 255.0, 216.0 / 255.0, 204.0 / 255.0);
 const DEEP: (f64, f64, f64) = (0.0, 100.0 / 255.0, 118.0 / 255.0);
 
-const PANEL_W: i32 = 340;
-const PANEL_H: i32 = 540;
+// The Windows home panels' own size (`home_leftbg.svg`, 368x600).
+const PANEL_W: i32 = 368;
+const PANEL_H: i32 = 600;
 const CENTER_W: i32 = 400;
+/// Height above the centre column's bottom where the laptop's feet go.
+const PLATFORM_TOP: i32 = 90;
 const REFRESH: Duration = Duration::from_millis(1500);
 /// Temperature that fills a dial completely.
 const TEMP_FULL_SCALE: f64 = 100.0;
@@ -75,7 +81,7 @@ fn read_cpu_ticks() -> Option<(u64, u64)> {
 
 pub fn build() -> gtk::ScrolledWindow {
     let scroll = gtk::ScrolledWindow::new();
-    scroll.set_policy(gtk::PolicyType::Never, gtk::PolicyType::Automatic);
+    scroll.set_policy(gtk::PolicyType::Automatic, gtk::PolicyType::Automatic);
     scroll.set_hexpand(true);
     scroll.set_vexpand(true);
 
@@ -84,30 +90,45 @@ pub fn build() -> gtk::ScrolledWindow {
     page.set_margin_top(4);
 
     // === Title ===
-    let title = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-    title.set_halign(gtk::Align::Center);
-    let predator = gtk::Label::new(Some("PREDATOR"));
-    predator.add_css_class("home-title-bold");
-    let sense = gtk::Label::new(Some("SENSE"));
-    sense.add_css_class("home-title-light");
-    title.append(&predator);
-    title.append(&sense);
-    page.append(&title);
+    match acer_assets::picture("images/home/home_appname.png", 260, 20) {
+        Some(title) => {
+            title.set_margin_top(12);
+            page.append(&title);
+        }
+        None => {
+            let title = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+            title.set_halign(gtk::Align::Center);
+            let predator = gtk::Label::new(Some("PREDATOR"));
+            predator.add_css_class("home-title-bold");
+            let sense = gtk::Label::new(Some("SENSE"));
+            sense.add_css_class("home-title-light");
+            title.append(&predator);
+            title.append(&sense);
+            page.append(&title);
+        }
+    }
 
+    // "System Mode" caption, then the active mode in bold on its banner -
+    // the Windows home screen's two-line mode readout.
+    let mode_caption = gtk::Label::new(Some(crate::i18n::t("home_system_mode")));
+    mode_caption.add_css_class("home-mode");
+    mode_caption.set_margin_top(8);
+    page.append(&mode_caption);
+    let mode_banner = gtk::Overlay::new();
+    mode_banner.set_halign(gtk::Align::Center);
+    mode_banner.set_size_request(336, 28);
+    if let Some(bg) = acer_assets::picture("images/home/home_modebg.png", 336, 24) {
+        mode_banner.set_child(Some(&bg));
+    }
     let mode_label = gtk::Label::new(None);
-    mode_label.add_css_class("home-mode");
-    mode_label.set_margin_bottom(14);
-    page.append(&mode_label);
+    mode_label.add_css_class("home-mode-value");
+    mode_banner.add_overlay(&mode_label);
+    mode_banner.set_margin_bottom(8);
+    page.append(&mode_banner);
 
-    // Wraps into a column on a narrow (e.g. tiled) window instead of
-    // clipping the side panels; at full width all three sit in one row.
-    let row = gtk::FlowBox::new();
-    row.set_selection_mode(gtk::SelectionMode::None);
-    row.set_max_children_per_line(3);
-    row.set_min_children_per_line(1);
-    row.set_homogeneous(false);
-    row.set_column_spacing(0);
-    row.set_row_spacing(24);
+    // Always one row, as in the Windows layout; a window narrower than the
+    // three columns scrolls sideways instead of stacking them.
+    let row = gtk::Box::new(gtk::Orientation::Horizontal, 0);
     row.set_halign(gtk::Align::Center);
     page.append(&row);
 
@@ -162,14 +183,23 @@ pub fn build() -> gtk::ScrolledWindow {
     usage_row.append(&gpu_usage_box);
     usage_row.append(&cpu_usage_box);
     left_content.append(&usage_row);
-    row.insert(&left, -1);
+    row.append(&left);
 
     // === Centre: laptop on its platform ===
     let center = gtk::Overlay::new();
     center.set_size_request(CENTER_W, PANEL_H);
+    // With the Windows artwork the brackets are part of the two side panels
+    // and the platform is its own `home_disc` image; drawn here otherwise.
     let center_bg = gtk::DrawingArea::new();
-    center_bg.set_draw_func(|_, cr, w, h| draw_center_stage(cr, w as f64, h as f64));
+    if !acer_assets::available() {
+        center_bg.set_draw_func(|_, cr, w, h| draw_center_stage(cr, w as f64, h as f64));
+    }
     center.set_child(Some(&center_bg));
+    if let Some(disc) = acer_assets::picture("images/home/home_disc.png", 368, 116) {
+        disc.set_valign(gtk::Align::End);
+        disc.set_margin_bottom(14);
+        center.add_overlay(&disc);
+    }
     let product = std::fs::read_to_string("/sys/class/dmi/id/product_name").unwrap_or_default();
     if let Some(path) = crate::ui::dashboard_page::find_model_photo(product.trim()) {
         let pic = gtk::Picture::for_filename(path);
@@ -177,15 +207,16 @@ pub fn build() -> gtk::ScrolledWindow {
         pic.set_size_request(300, 220);
         pic.set_halign(gtk::Align::Center);
         pic.set_valign(gtk::Align::End);
-        // Sits on the platform ellipse `draw_center_stage` puts at ~78%.
-        pic.set_margin_bottom((PANEL_H as f64 * 0.25) as i32);
+        // Stands on the platform: `home_disc` (or the drawn ellipse) has
+        // its top rim ~90px above the column's bottom edge.
+        pic.set_margin_bottom(PLATFORM_TOP);
         center.add_overlay(&pic);
     }
-    row.insert(&center, -1);
+    row.append(&center);
 
     // === Right: temperatures ===
     let (right, right_content) = panel(true);
-    right_content.set_spacing(4);
+    right_content.set_margin_top(30);
     let mut dials = Vec::new();
     for key in ["GPU", "CPU", "home_system"] {
         let caption = if key == "home_system" {
@@ -223,17 +254,11 @@ pub fn build() -> gtk::ScrolledWindow {
             cr.restore().ok();
         });
     }
-    right.add_overlay(&tag_area);
-    row.insert(&right, -1);
-
-    // FlowBox wraps each child in a FlowBoxChild that would otherwise take
-    // focus/hover styling - these are display panels, not items.
-    let mut child = row.first_child();
-    while let Some(c) = child {
-        c.set_can_focus(false);
-        c.add_css_class("home-flow-child");
-        child = c.next_sibling();
+    // `home_rightbg` already carries the TEMPERATURE label.
+    if !acer_assets::available() {
+        right.add_overlay(&tag_area);
     }
+    row.append(&right);
 
     scroll.set_child(Some(&page));
 
@@ -290,12 +315,8 @@ pub fn build() -> gtk::ScrolledWindow {
 
                 let mode = crate::hardware::profile::get_current_profile()
                     .map(|p| p.label().to_string())
-                    .unwrap_or_default();
-                mode_label.set_text(&if mode.is_empty() {
-                    crate::i18n::t("home_system_mode").to_string()
-                } else {
-                    format!("{} · {mode}", crate::i18n::t("home_system_mode"))
-                });
+                    .unwrap_or_else(|| "--".into());
+                mode_label.set_text(&mode);
             });
         })
     };
@@ -322,9 +343,21 @@ pub fn build() -> gtk::ScrolledWindow {
 fn panel(mirrored: bool) -> (gtk::Overlay, gtk::Box) {
     let overlay = gtk::Overlay::new();
     overlay.set_size_request(PANEL_W, PANEL_H);
-    let frame = gtk::DrawingArea::new();
-    frame.set_draw_func(move |_, cr, w, h| draw_panel_frame(cr, w as f64, h as f64, mirrored));
-    overlay.set_child(Some(&frame));
+    let art = if mirrored {
+        "images/home/home_rightbg.png"
+    } else {
+        "images/home/home_leftbg.png"
+    };
+    match acer_assets::picture(art, PANEL_W, PANEL_H) {
+        Some(frame) => overlay.set_child(Some(&frame)),
+        None => {
+            let frame = gtk::DrawingArea::new();
+            frame.set_draw_func(move |_, cr, w, h| {
+                draw_panel_frame(cr, w as f64, h as f64, mirrored)
+            });
+            overlay.set_child(Some(&frame));
+        }
+    }
     let content = gtk::Box::new(gtk::Orientation::Vertical, 0);
     content.set_halign(gtk::Align::Center);
     content.set_valign(gtk::Align::Start);
@@ -363,15 +396,30 @@ fn temperature_dial(caption: &str) -> (gtk::Box, Dial) {
     column.set_margin_start(40);
     let temp: Rc<Cell<Option<f64>>> = Rc::new(Cell::new(None));
     let area = gtk::DrawingArea::new();
-    area.set_size_request(156, 156);
+    area.set_size_request(180, 180);
+    let overlay = gtk::Overlay::new();
+    // Over the Windows dial background (`home_circlebg`, 180x180) only the
+    // value arc is drawn; without it, the whole dial.
+    let backdrop = acer_assets::picture("images/home/home_circlebg.png", 180, 180);
     {
         let temp = temp.clone();
+        let arc_only = backdrop.is_some();
         area.set_draw_func(move |_, cr, w, h| {
-            draw_temperature_dial(cr, w as f64, h as f64, temp.get().map(|t| t / TEMP_FULL_SCALE));
+            let fraction = temp.get().map(|t| t / TEMP_FULL_SCALE);
+            if arc_only {
+                draw_temperature_arc(cr, w as f64, h as f64, fraction);
+            } else {
+                draw_temperature_dial(cr, w as f64, h as f64, fraction);
+            }
         });
     }
-    let overlay = gtk::Overlay::new();
-    overlay.set_child(Some(&area));
+    match backdrop {
+        Some(backdrop) => {
+            overlay.set_child(Some(&backdrop));
+            overlay.add_overlay(&area);
+        }
+        None => overlay.set_child(Some(&area)),
+    }
     let text = gtk::Box::new(gtk::Orientation::Vertical, 0);
     text.set_halign(gtk::Align::Center);
     text.set_valign(gtk::Align::Center);
@@ -382,12 +430,14 @@ fn temperature_dial(caption: &str) -> (gtk::Box, Dial) {
     text.append(&value);
     text.append(&unit);
     overlay.add_overlay(&text);
-    column.append(&overlay);
+    // In the dial's lower-right corner, where the Windows dials put it.
     let label = gtk::Label::new(Some(caption));
     label.add_css_class("home-caption");
     label.set_halign(gtk::Align::End);
-    label.set_margin_end(4);
-    column.append(&label);
+    label.set_valign(gtk::Align::End);
+    label.set_margin_bottom(4);
+    overlay.add_overlay(&label);
+    column.append(&overlay);
     (column, (temp, value, area))
 }
 
@@ -555,6 +605,25 @@ fn draw_temperature_dial(cr: &gtk4::cairo::Context, w: f64, h: f64, fraction: Op
     let _ = cr.set_source(&disc);
     cr.arc(cx, cy, rc, 0.0, 2.0 * PI);
     let _ = cr.fill();
+}
+
+/// Value arc for a dial drawn over `home_circlebg`: a thick stroke from the
+/// bottom round clockwise, green at its start to cyan at its head, as on
+/// the Windows home screen.
+fn draw_temperature_arc(cr: &gtk4::cairo::Context, w: f64, h: f64, fraction: Option<f64>) {
+    let Some(f) = fraction.map(|f| f.clamp(0.0, 1.0)).filter(|f| *f > 0.0) else {
+        return;
+    };
+    let (cx, cy) = (w / 2.0, h / 2.0);
+    let r = w.min(h) * 0.39;
+    let gradient = gtk4::cairo::LinearGradient::new(0.0, cy + r, 0.0, cy - r);
+    gradient.add_color_stop_rgb(0.0, GREEN.0, GREEN.1, GREEN.2);
+    gradient.add_color_stop_rgb(1.0, CYAN.0, CYAN.1, CYAN.2);
+    let _ = cr.set_source(&gradient);
+    cr.set_line_width(12.0);
+    cr.set_line_cap(gtk4::cairo::LineCap::Butt);
+    cr.arc(cx, cy, r, PI / 2.0, PI / 2.0 + f * 2.0 * PI);
+    let _ = cr.stroke();
 }
 
 /// Centre column: angled cyan brackets left and right, and the lit platform
