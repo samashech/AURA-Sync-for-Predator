@@ -1285,6 +1285,13 @@ fn build_main_content(app: &adw::Application, window: &gtk::ApplicationWindow) -
     }
     window.add_controller(key_controller);
 
+    // Developer aid for README screenshots: with PREDATOR_SENSE_SHOTS set to a
+    // folder, step through every tab and save each as a PNG rendered from the
+    // window's own widget tree - never a screen grab, so nothing outside this
+    // window can end up in the image.
+    if let Some(dir) = std::env::var_os("PREDATOR_SENSE_SHOTS") {
+        capture_every_page(window, navigate_to.clone(), page_names.clone(), dir.into());
+    }
 
     // Thirteen pages do not fit across a narrow window, so the row scrolls
     // sideways instead of wrapping - the Windows app does the same, with
@@ -1403,6 +1410,72 @@ fn build_main_content(app: &adw::Application, window: &gtk::ApplicationWindow) -
     });
 
     main_overlay
+}
+
+/// Gives the window time to settle at its final size and the Home page time
+/// for its first sensor read before the first capture.
+const SHOT_START_DELAY: std::time::Duration = std::time::Duration::from_secs(6);
+/// Size the captures are taken at - a typical laptop desktop window.
+const SHOT_SIZE: (i32, i32) = (1600, 1000);
+/// Per page: long enough for a lazily built page and one Home refresh.
+const SHOT_PAGE_DELAY: std::time::Duration = std::time::Duration::from_millis(2500);
+
+fn capture_every_page(
+    window: &gtk::ApplicationWindow,
+    navigate_to: Rc<dyn Fn(usize)>,
+    page_names: Rc<Vec<String>>,
+    dir: std::path::PathBuf,
+) {
+    if let Err(error) = std::fs::create_dir_all(&dir) {
+        eprintln!("[shots] cannot create {}: {error}", dir.display());
+        return;
+    }
+    let window = window.clone();
+    let next = Rc::new(Cell::new(0usize));
+    glib::timeout_add_local_once(SHOT_START_DELAY, move || {
+        // A fullscreen GtkWindow hides its titlebar, and so would the
+        // captures; they are taken as a plain window at a fixed desktop
+        // size. Done here, after `build`'s own startup `maximize()`.
+        window.unfullscreen();
+        window.unmaximize();
+        window.set_default_size(SHOT_SIZE.0, SHOT_SIZE.1);
+        eprintln!(
+            "[shots] window {}x{} fullscreen={} maximized={}",
+            window.width(),
+            window.height(),
+            window.is_fullscreen(),
+            window.is_maximized()
+        );
+        navigate_to(0);
+        glib::timeout_add_local(SHOT_PAGE_DELAY, move || {
+            let index = next.get();
+            let Some(name) = page_names.get(index) else {
+                eprintln!("[shots] done: {}", dir.display());
+                return glib::ControlFlow::Break;
+            };
+            let path = dir.join(format!("{:02}-{name}.png", index + 1));
+            match save_window_png(&window, &path) {
+                Ok(()) => eprintln!("[shots] {}", path.display()),
+                Err(error) => eprintln!("[shots] {name}: {error}"),
+            }
+            next.set(index + 1);
+            navigate_to(index + 1);
+            glib::ControlFlow::Continue
+        });
+    });
+}
+
+fn save_window_png(window: &gtk::ApplicationWindow, path: &std::path::Path) -> Result<(), String> {
+    let (width, height) = (window.width() as f64, window.height() as f64);
+    let paintable = gtk::WidgetPaintable::new(Some(window));
+    let snapshot = gtk::Snapshot::new();
+    paintable.snapshot(&snapshot, width, height);
+    let node = snapshot.to_node().ok_or("window rendered nothing")?;
+    let renderer = window.renderer().ok_or("window has no renderer yet")?;
+    renderer
+        .render_texture(&node, None)
+        .save_to_png(path)
+        .map_err(|e| e.to_string())
 }
 
 /// Widget name of the header box `build_main_content` fills with the tabs.
