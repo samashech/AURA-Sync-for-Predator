@@ -67,11 +67,39 @@ viewport {
 }
 
 /* === Header Bar === */
+/* One 48px black bar, as in the Windows 5.x app (`h-12 bg-headerBg`,
+   `#000000`): brand mark, page tabs, status pill, window controls. */
 .custom-headerbar {
-    background-color: @bg_dark;
-    border-bottom: 1px solid @border_dim;
-    min-height: 50px;
+    background-color: #000000;
+    min-height: 48px;
+}
+
+/* Page tabs. Same metrics as the Windows header buttons (`px-4`, 16px
+   text, `#b0b0b0` idle / white active) with a 3px cyan underline on the
+   active one - an inset shadow rather than a border so the label does not
+   shift up when a tab becomes active. */
+.nav-tab {
     padding: 0 16px;
+    min-height: 48px;
+    color: #b0b0b0;
+    font-family: "Predator", sans-serif;
+    font-size: 16px;
+    font-weight: 400;
+}
+
+.nav-tab:hover {
+    color: #ffffff;
+}
+
+.nav-tab-active {
+    color: #ffffff;
+    box-shadow: inset 0 -3px @cyan;
+}
+
+.header-status {
+    padding: 4px 10px;
+    border-radius: 12px;
+    background-color: alpha(@cyan, 0.08);
 }
 
 /* Window control buttons (minimize, close) */
@@ -1161,3 +1189,91 @@ scrollbar slider:hover {
 .feature-off .feature-icon { color: #888; }
 .feature-label { font-size: 12px; font-weight: 400; } /* Regular, 12px (label) */
 .info-note { color: #9aa0a6; font-size: 12px; font-weight: 400; } /* Regular, 12px (label) */
+
+/* === Home (home_page.rs) - after the Windows 5.x home screen === */
+.home-title-bold {
+    font-family: "Predator", sans-serif;
+    font-weight: 700;
+    font-size: 28px;
+    letter-spacing: 1px;
+    color: #1eff96;
+}
+
+.home-title-light {
+    font-family: "Predator", sans-serif;
+    font-weight: 400;
+    font-size: 28px;
+    letter-spacing: 1px;
+    color: #0ed8cc;
+}
+
+.home-mode {
+    font-size: 13px;
+    color: #e0e0e0;
+}
+
+.home-gauge-title {
+    font-family: "Predator", sans-serif;
+    font-weight: 400;
+    font-size: 36px;
+    color: #e0e0e0;
+}
+
+.home-gauge-value {
+    font-family: "Predator", sans-serif;
+    font-weight: 700;
+    font-size: 24px;
+    color: #ffffff;
+}
+
+.home-dial-value {
+    font-family: "Predator", sans-serif;
+    font-weight: 700;
+    font-size: 26px;
+    color: #ffffff;
+}
+
+.home-caption {
+    font-size: 12px;
+    color: #e0e0e0;
+}
+
+.home-unit {
+    font-size: 12px;
+    color: #808080;
+}
+
+.home-gpu-state {
+    font-size: 13px;
+    color: #00c8ec;
+}
+
+.home-usage-value {
+    font-family: "Predator", sans-serif;
+    font-weight: 700;
+    font-size: 16px;
+    color: #ffffff;
+}
+
+.home-usage-bar trough {
+    min-height: 8px;
+    border-radius: 0;
+    background-color: rgba(0, 100, 118, 0.35);
+}
+
+.home-usage-bar block.filled {
+    border-radius: 0;
+    background-color: #00c8ec;
+}
+
+.home-usage-bar block.empty {
+    background-color: transparent;
+}
+
+flowboxchild.home-flow-child,
+flowboxchild.home-flow-child:hover,
+flowboxchild.home-flow-child:focus {
+    background: none;
+    padding: 0;
+    outline: none;
+}

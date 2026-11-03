@@ -397,7 +397,7 @@ fn create_spec_card(
 /// case-insensitive substring so "Predator PHN16-73" and "PHN16-73" both hit
 /// the same file regardless of the "Predator "/"Nitro " prefix some DMI
 /// strings include.
-fn find_model_photo(product_name: &str) -> Option<String> {
+pub(crate) fn find_model_photo(product_name: &str) -> Option<String> {
     let dir = find_resource_dir("models")?;
     let entries = std::fs::read_dir(&dir).ok()?;
     let product_lower = product_name.to_lowercase();

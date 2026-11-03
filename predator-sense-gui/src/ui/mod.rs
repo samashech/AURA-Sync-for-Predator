@@ -16,6 +16,7 @@ pub mod game_sync_page;
 pub mod gauge_widget;
 pub mod gpu_page;
 pub mod grub_splash_page;
+pub mod home_page;
 pub mod lighting_page;
 pub mod macros_page;
 pub mod magic_rgb_page;
