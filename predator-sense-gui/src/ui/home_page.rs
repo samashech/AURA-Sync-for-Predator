@@ -10,11 +10,14 @@
 
 use gtk4::prelude::*;
 use gtk4::{self as gtk, glib};
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
+use std::collections::HashMap;
+use std::path::PathBuf;
 use std::f64::consts::PI;
 use std::rc::Rc;
 use std::time::Duration;
 
+use crate::hardware::profile::PowerProfile;
 use crate::hardware::sensors;
 use crate::ui::acer_assets;
 
@@ -200,8 +203,14 @@ pub fn build() -> gtk::ScrolledWindow {
         disc.set_margin_bottom(14);
         center.add_overlay(&disc);
     }
+    // The Windows app's own figure when its frames have been rendered
+    // (`tools/render_figure`), the laptop photo otherwise.
+    let figure = Figure::load();
     let product = std::fs::read_to_string("/sys/class/dmi/id/product_name").unwrap_or_default();
-    if let Some(path) = crate::ui::dashboard_page::find_model_photo(product.trim()) {
+    if let Some(figure) = &figure {
+        center.add_overlay(&figure.picture);
+        figure.start();
+    } else if let Some(path) = crate::ui::dashboard_page::find_model_photo(product.trim()) {
         let pic = gtk::Picture::for_filename(path);
         pic.set_can_shrink(true);
         pic.set_size_request(300, 220);
@@ -284,6 +293,7 @@ pub fn build() -> gtk::ScrolledWindow {
             let dials = dials.clone();
             let prev_ticks = prev_ticks.clone();
             let mode_label = mode_label.clone();
+            let figure = figure.clone();
             crate::ui::background::run(read, move |r: Reading| {
                 in_flight.set(false);
                 if r.gpu_clock_max_mhz > 0 {
@@ -313,10 +323,11 @@ pub fn build() -> gtk::ScrolledWindow {
                     dial.2.queue_draw();
                 }
 
-                let mode = crate::hardware::profile::get_current_profile()
-                    .map(|p| p.label().to_string())
-                    .unwrap_or_else(|| "--".into());
-                mode_label.set_text(&mode);
+                let profile = crate::hardware::profile::get_current_profile();
+                if let Some(figure) = &figure {
+                    figure.set_mode(profile);
+                }
+                mode_label.set_text(&profile.map_or("--".into(), |p| p.label().to_string()));
             });
         })
     };
@@ -335,6 +346,120 @@ pub fn build() -> gtk::ScrolledWindow {
     }
 
     scroll
+}
+
+#[derive(serde::Deserialize)]
+struct FigureMeta {
+    fps: u32,
+    clips: HashMap<String, usize>,
+}
+
+/// The Windows home screen's 3D figure, pre-rendered from its `fighter.glb`
+/// into PNG frames by `tools/render_figure` (into the imported asset folder,
+/// never this repository). Like on Windows, it acts out the active power
+/// mode: that mode's intro clip once whenever the mode changes, then its
+/// loop clip over and over.
+///
+/// Frames are decoded one at a time on each tick rather than kept as
+/// textures - a loop is up to ~40 600x900 frames, ~80 MB decoded - and only
+/// while Home is actually on screen.
+struct Figure {
+    picture: gtk::Picture,
+    dir: PathBuf,
+    meta: FigureMeta,
+    clip: RefCell<String>,
+    frame: Cell<usize>,
+    mode: Cell<Option<PowerProfile>>,
+}
+
+impl Figure {
+    fn load() -> Option<Rc<Figure>> {
+        let meta_path = acer_assets::file("robot/frames/meta.json")?;
+        let meta: FigureMeta = serde_json::from_str(&std::fs::read_to_string(&meta_path).ok()?).ok()?;
+        let dir = PathBuf::from(meta_path).parent()?.to_path_buf();
+        let picture = gtk::Picture::new();
+        picture.set_can_shrink(true);
+        picture.set_content_fit(gtk::ContentFit::Contain);
+        picture.set_size_request(CENTER_W, PANEL_H);
+        picture.set_can_target(false);
+        let figure = Rc::new(Figure {
+            picture,
+            dir,
+            meta,
+            clip: RefCell::new(String::new()),
+            frame: Cell::new(0),
+            mode: Cell::new(None),
+        });
+        // Idle stance until the first sensor refresh reports the mode.
+        figure.play(&format!("{}Loop", clip_for(PowerProfile::Balanced)));
+        figure.show_frame();
+        Some(figure)
+    }
+
+    fn play(&self, clip: &str) {
+        *self.clip.borrow_mut() = clip.to_string();
+        self.frame.set(0);
+    }
+
+    fn set_mode(&self, profile: Option<PowerProfile>) {
+        if profile.is_none() || profile == self.mode.get() {
+            return;
+        }
+        self.mode.set(profile);
+        let base = clip_for(profile.unwrap_or(PowerProfile::Balanced));
+        if self.meta.clips.contains_key(base) {
+            self.play(base);
+        } else {
+            self.play(&format!("{base}Loop"));
+        }
+    }
+
+    fn show_frame(&self) {
+        let mut clip = self.clip.borrow().clone();
+        let mut frame = self.frame.get();
+        let count = self.meta.clips.get(&clip).copied().unwrap_or(0);
+        if frame >= count {
+            // An intro hands over to its loop; a loop starts over.
+            if !clip.ends_with("Loop") {
+                clip.push_str("Loop");
+                *self.clip.borrow_mut() = clip.clone();
+            }
+            frame = 0;
+        }
+        let path = self.dir.join(&clip).join(format!("{frame:04}.png"));
+        if let Ok(texture) = gtk4::gdk::Texture::from_filename(&path) {
+            self.picture.set_paintable(Some(&texture));
+        }
+        self.frame.set(frame + 1);
+    }
+
+    fn start(self: &Rc<Self>) {
+        let weak = Rc::downgrade(self);
+        let interval = Duration::from_millis(1000 / u64::from(self.meta.fps.max(1)));
+        glib::timeout_add_local(interval, move || {
+            let Some(figure) = weak.upgrade() else {
+                return glib::ControlFlow::Break;
+            };
+            if figure.picture.root().is_none() {
+                return glib::ControlFlow::Break;
+            }
+            if crate::app_state::is_window_visible() && figure.picture.is_mapped() {
+                figure.show_frame();
+            }
+            glib::ControlFlow::Continue
+        });
+    }
+}
+
+/// Clip name the Windows app uses for each power mode.
+fn clip_for(profile: PowerProfile) -> &'static str {
+    match profile {
+        PowerProfile::Quiet => "QuietMode",
+        PowerProfile::Balanced => "DefaultMode",
+        PowerProfile::Performance => "ExtremeMode",
+        PowerProfile::Turbo => "TurboMode",
+        PowerProfile::Eco => "EcoMode",
+    }
 }
 
 /// A chamfered display panel: frame drawn behind, content box on top.

@@ -1,0 +1,92 @@
+<!doctype html>
+<meta charset="utf-8">
+<style>html,body{margin:0;background:transparent;overflow:hidden}</style>
+<script type="importmap">
+{"imports":{"three":"/three/build/three.module.js","three/addons/":"/three/examples/jsm/"}}
+</script>
+<script type="module">
+// Renders the Windows app's figure (fighter.glb) one animation frame at a
+// time for main.js, which reads each frame back as a PNG. Transparent
+// background: the GUI composites it over its own platform.
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+
+const params = new URLSearchParams(location.search);
+const width = Number(params.get('w')), height = Number(params.get('h'));
+const scale = Number(params.get('scale'));
+
+const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true, preserveDrawingBuffer: true });
+renderer.setPixelRatio(scale);
+renderer.setSize(width, height);
+renderer.setClearColor(0x000000, 0);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 0.85;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+// The figure is polished armour; a neutral room environment gives it
+// something to reflect, and a cyan rim matches the app's platform glow.
+const pmrem = new THREE.PMREMGenerator(renderer);
+scene.environment = pmrem.fromScene(new RoomEnvironment(renderer), 0.04).texture;
+scene.add(new THREE.HemisphereLight(0x8fd8ff, 0x02141a, 0.35));
+const key = new THREE.DirectionalLight(0xcfe8ff, 0.9);
+key.position.set(1.5, 3, 3);
+scene.add(key);
+const rim = new THREE.DirectionalLight(0x00c8ec, 3.0);
+rim.position.set(-2, 1.5, -2.5);
+scene.add(rim);
+const rimRight = new THREE.DirectionalLight(0x3a7bff, 2.0);
+rimRight.position.set(2.5, 1, -1.5);
+scene.add(rimRight);
+
+const camera = new THREE.PerspectiveCamera(30, width / height, 0.001, 10);
+let mixer, clips;
+
+window.loadModel = async (url) => {
+  const gltf = await new GLTFLoader().loadAsync(url);
+  // The file's own punctual light is set up for the Windows A-Frame scene's
+  // units and washes the armour out to white here; the lights above replace
+  // it. Reflections are toned down for the same dark-chrome look.
+  const lights = [];
+  gltf.scene.traverse((o) => {
+    if (o.isLight) lights.push(o);
+    if (o.material) for (const m of [].concat(o.material)) m.envMapIntensity = 0.55;
+  });
+  lights.forEach((l) => l.removeFromParent());
+  scene.add(gltf.scene);
+  mixer = new THREE.AnimationMixer(gltf.scene);
+  clips = Object.fromEntries(gltf.animations.map((c) => [c.name, c]));
+  // Frame the figure from its first loop pose: feet at `feet` (fraction of
+  // the image height from the top) and head near the top edge.
+  play('DefaultModeLoop', 0);
+  gltf.scene.updateMatrixWorld(true);
+  // `precise` measures the skinned meshes in their posed shape; without it
+  // three.js uses the bind-pose geometry, which frames the wrong region.
+  const box = new THREE.Box3().setFromObject(gltf.scene, true);
+  const size = box.getSize(new THREE.Vector3());
+  const feet = Number(params.get('feet')), top = 0.06;
+  const visible = size.y / (feet - top);
+  const dist = visible / 2 / Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
+  // The image's top edge is `top` of the view above the head; its centre
+  // is half the view below that.
+  const centerY = box.max.y + top * visible - visible / 2;
+  camera.position.set(0, centerY, box.getCenter(new THREE.Vector3()).z + dist);
+  camera.lookAt(0, centerY, box.getCenter(new THREE.Vector3()).z);
+  return Object.fromEntries(gltf.animations.map((c) => [c.name, c.duration]));
+};
+
+function play(name, time) {
+  mixer.stopAllAction();
+  const action = mixer.clipAction(clips[name]);
+  action.play();
+  mixer.setTime(time);
+}
+
+window.frame = (name, time) => {
+  play(name, time);
+  renderer.render(scene, camera);
+  return renderer.domElement.toDataURL('image/png');
+};
+</script>
