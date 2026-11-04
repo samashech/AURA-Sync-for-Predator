@@ -1,28 +1,5 @@
 # Predator Sense for Linux
 
-<p align="center">
-  <img src="predator-sense-gui/resources/logo.jpeg" width="120" alt="Predator Sense Logo">
-</p>
-
-<p align="center">
-  <b>Unofficial Linux kernel module and GUI for Acer Gaming laptop hardware control</b><br>
-  <i>RGB Keyboard Backlighting &bull; Turbo Mode &bull; Temperature Monitoring &bull; Performance Profiles</i>
-</p>
-
-<p align="center">
-  <img src="https://img.shields.io/badge/Language-Rust-orange?logo=rust" alt="Rust">
-  <img src="https://img.shields.io/badge/GTK-4-blue?logo=gtk" alt="GTK4">
-  <img src="https://img.shields.io/badge/Userspace-100%25_Rust-orange?logo=rust" alt="100% Rust userspace">
-  <img src="https://img.shields.io/badge/License-GPL--3.0-green" alt="License">
-  <img src="https://img.shields.io/badge/Platform-Linux-yellow?logo=linux" alt="Linux">
-</p>
-
-<p align="center">
-  maintained by <a href="https://github.com/samashech">Samashech</a>
-</p>
-
----
-
 ## Disclaimer
 
 > **Warning**
