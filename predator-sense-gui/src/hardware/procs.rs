@@ -95,7 +95,7 @@ impl UsageSampler {
         let mem = read_meminfo();
 
         // Temperaturas
-        let cpu_temp = read_cpu_temperature();
+        let cpu_temp = super::sensors::read_cpu_temperature();
         let gpu_metrics = super::gpu::read_gpu_metrics();
         // Static identity is useful elsewhere, but this sample feeds gauges;
         // only expose it when the dynamic fields are a real live reading.
@@ -332,15 +332,3 @@ pub fn top_by_mem(processes: &[ProcessInfo], n: usize) -> Vec<ProcessInfo> {
     v.into_iter().take(n).collect()
 }
 
-fn read_cpu_temperature() -> Option<f64> {
-    // Busca Package id 0 (Intel) primeiro, depois outros
-    for driver in &["coretemp", "k10temp"] {
-        if let Some(t) = crate::hardware::hwmon::label_temp(driver, "Package id 0") {
-            return Some(t);
-        }
-        if let Some(t) = crate::hardware::hwmon::first_temp(driver, "temp1_input") {
-            return Some(t);
-        }
-    }
-    None
-}
